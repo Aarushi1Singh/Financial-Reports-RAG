@@ -1,0 +1,9 @@
+.env
+chroma_db/
+data/pdfs/
+__pycache__/
+.venv/
+*.pyc
+data/chunked_data.json
+data/parsed_pages.json
+data/chunks_with_embeddings.json
