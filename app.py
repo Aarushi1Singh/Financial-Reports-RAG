@@ -7,6 +7,49 @@ from dotenv import load_dotenv
 
 load_dotenv(override=True)
 
+from tavily import TavilyClient
+import os
+
+tavily_client = TavilyClient(api_key=os.getenv("TAVILY_API_KEY"))
+
+def web_search_fallback(question):
+    print(f"  Web search fallback for: {question}")
+    
+    results = tavily_client.search(
+        query=question + " India banking finance",
+        search_depth="basic",
+        max_results=3
+    )
+    
+    # format results as context
+    context = ""
+    sources = []
+    for r in results["results"]:
+        context += f"[Source: {r['url']}]\n{r['content']}\n\n"
+        sources.append(("Web", r['url'][:50]))
+    
+    # generate answer from web results
+    response = client_anthropic.messages.create(
+        model="claude-sonnet-4-5",
+        max_tokens=800,
+        messages=[{"role": "user", "content": f"""Answer the following question using the web search results below.
+Cite each fact with the source URL.
+If the search results don't answer the question, say so clearly.
+
+Search results:
+{context}
+
+Question: {question}"""}]
+    )
+    
+    return {
+        "answer": response.content[0].text,
+        "confidence": 0.5,
+        "query_type": "web_search",
+        "sources": sources
+    }
+
+
 # ── clients ──────────────────────────────────────────────
 client_anthropic = anthropic.Anthropic(api_key=os.getenv("ANTHROPIC_API_KEY"))
 client_openai = OpenAI(api_key=os.getenv("OPENAI_API_KEY"))
@@ -211,6 +254,9 @@ for message in st.session_state.messages:
             with col2:
                 confidence = message["confidence"]
                 color = "🟢" if confidence >= 0.8 else "🟡" if confidence >= 0.6 else "🔴"
+                query_label = result["query_type"]
+                if query_label == "web_search":
+                    query_label = "web search 🌐"
                 st.caption(f"Confidence: {color} {confidence:.2f}")
             if message["sources"]:
                 with st.expander("📄 Sources"):
@@ -248,6 +294,9 @@ if prompt:
         with col2:
             confidence = result["confidence"]
             color = "🟢" if confidence >= 0.8 else "🟡" if confidence >= 0.6 else "🔴"
+            query_label = result["query_type"]
+            if query_label == "web_search":
+                query_label = "web search 🌐"
             st.caption(f"Confidence: {color} {confidence:.2f}")
         
         if result["sources"]:
