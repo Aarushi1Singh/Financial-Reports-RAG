@@ -2,57 +2,15 @@ import streamlit as st
 import anthropic
 import chromadb
 from openai import OpenAI
+from tavily import TavilyClient
 import os
 from dotenv import load_dotenv
 
 load_dotenv(override=True)
 
-from tavily import TavilyClient
-import os
-
-tavily_client = TavilyClient(api_key=os.getenv("TAVILY_API_KEY"))
-
-def web_search_fallback(question):
-    print(f"  Web search fallback for: {question}")
-    
-    results = tavily_client.search(
-        query=question + " India banking finance",
-        search_depth="basic",
-        max_results=3
-    )
-    
-    # format results as context
-    context = ""
-    sources = []
-    for r in results["results"]:
-        context += f"[Source: {r['url']}]\n{r['content']}\n\n"
-        sources.append(("Web", r['url'][:50]))
-    
-    # generate answer from web results
-    response = client_anthropic.messages.create(
-        model="claude-sonnet-4-5",
-        max_tokens=800,
-        messages=[{"role": "user", "content": f"""Answer the following question using the web search results below.
-Cite each fact with the source URL.
-If the search results don't answer the question, say so clearly.
-
-Search results:
-{context}
-
-Question: {question}"""}]
-    )
-    
-    return {
-        "answer": response.content[0].text,
-        "confidence": 0.5,
-        "query_type": "web_search",
-        "sources": sources
-    }
-
-
-# ── clients ──────────────────────────────────────────────
 client_anthropic = anthropic.Anthropic(api_key=os.getenv("ANTHROPIC_API_KEY"))
 client_openai = OpenAI(api_key=os.getenv("OPENAI_API_KEY"))
+tavily_client = TavilyClient(api_key=os.getenv("TAVILY_API_KEY"))
 
 client_chroma = chromadb.PersistentClient(path="./chroma_db")
 collection = client_chroma.get_or_create_collection(
@@ -60,250 +18,539 @@ collection = client_chroma.get_or_create_collection(
     metadata={"hnsw:space": "cosine"}
 )
 
-# ── core functions (copied from notebook) ────────────────
+st.set_page_config(
+    page_title="Financial RAG Analyst",
+    page_icon="📊",
+    layout="wide",
+    initial_sidebar_state="expanded"
+)
+
+st.markdown("""
+<style>
+@import url('https://fonts.googleapis.com/css2?family=DM+Serif+Display:ital@0;1&family=DM+Sans:wght@300;400;500&family=DM+Mono:wght@400;500&display=swap');
+
+html, body, [class*="css"] { font-family: 'DM Sans', sans-serif; }
+#MainMenu, footer { visibility: hidden; }
+header { visibility: visible !important; }
+.block-container { padding: 0 !important; max-width: 100% !important; }
+[data-testid="stAppViewContainer"] { background: #0C0D0E; }
+[data-testid="stHeader"] { background: transparent !important; }
+
+/* ── sidebar ── */
+[data-testid="stSidebar"] {
+    background: #101214 !important;
+    border-right: 1px solid #1C1E21 !important;
+    min-width: 230px !important;
+    max-width: 230px !important;
+}
+[data-testid="stSidebar"] > div { padding: 1.5rem 1.25rem; }
+
+.sidebar-logo {
+    font-family: 'DM Serif Display', serif;
+    font-size: 1.05rem;
+    color: #D4DCEB;
+    letter-spacing: 0.01em;
+    margin-bottom: 0.1rem;
+}
+.sidebar-sub {
+    font-size: 0.63rem;
+    color: #4A5570;
+    letter-spacing: 0.09em;
+    text-transform: uppercase;
+    margin-bottom: 0.6rem;
+}
+.sidebar-divider {
+    border: none;
+    border-top: 1px solid #1C1E21;
+    margin: 0.65rem 0;
+}
+.sidebar-section {
+    font-size: 0.63rem;
+    font-weight: 500;
+    color: #7B8A9E;
+    letter-spacing: 0.1em;
+    text-transform: uppercase;
+    margin-bottom: 0.35rem;
+}
+.sidebar-body {
+    font-size: 0.72rem;
+    color: #7B8A9E;
+    line-height: 1.6;
+    margin-bottom: 0.6rem;
+}
+.sidebar-tag {
+    display: inline-block;
+    font-size: 0.58rem;
+    font-family: 'DM Mono', monospace;
+    color: #7B9EC4;
+    border: 1px solid #1E2E40;
+    border-radius: 3px;
+    padding: 2px 5px;
+    margin: 2px 2px 2px 0;
+}
+.sidebar-tree {
+    margin-bottom: 0.6rem;
+}
+.tree-parent {
+    font-size: 0.65rem;
+    font-weight: 500;
+    color: #7B8A9E;
+    letter-spacing: 0.05em;
+    text-transform: uppercase;
+    margin-bottom: 0.15rem;
+    padding-left: 0;
+}
+.tree-children {
+    font-size: 0.68rem;
+    font-family: 'DM Mono', monospace;
+    color: #7B9EC4;
+    padding-left: 0.75rem;
+    border-left: 1px solid #1E2E40;
+    line-height: 1.6;
+}
+.sidebar-stat {
+    font-size: 0.68rem;
+    color: #7B8A9E;
+    margin-bottom: 0.2rem;
+    display: flex;
+    justify-content: space-between;
+}
+.sidebar-stat span {
+    font-family: 'DM Mono', monospace;
+    color: #7B9EC4;
+    font-size: 0.65rem;
+}
+
+/* ── sidebar buttons ── */
+[data-testid="stSidebar"] .stButton > button {
+    background: transparent !important;
+    border: 1px solid #1C1E21 !important;
+    color: #5A6070 !important;
+    font-size: 0.7rem !important;
+    font-family: 'DM Sans', sans-serif !important;
+    padding: 0.3rem 0.55rem !important;
+    border-radius: 4px !important;
+    text-align: left !important;
+    width: 100% !important;
+    margin-bottom: 0.15rem !important;
+    transition: all 0.15s ease !important;
+}
+[data-testid="stSidebar"] .stButton > button:hover {
+    border-color: #3C4A60 !important;
+    color: #D4DCEB !important;
+    background: #131618 !important;
+}
+
+/* ── main area ── */
+.main-area {
+    padding: 0 3.5rem 7rem 3.5rem;
+    max-width: 820px;
+    margin: 0 auto;
+}
+.page-hero {
+    text-align: center;
+    padding: 2.5rem 1rem 2rem 1rem;
+    border-bottom: 1px solid #1C1E21;
+    margin-bottom: 2rem;
+}
+.chat-header {
+    font-family: 'DM Serif Display', serif;
+    font-size: 1.6rem;
+    color: #D4DCEB;
+    margin-bottom: 0.35rem;
+    font-style: italic;
+}
+.chat-subheader {
+    font-size: 0.75rem;
+    font-weight: 600;
+    color: #5A6A80;
+    letter-spacing: 0.07em;
+    text-transform: uppercase;
+}
+
+/* ── messages ── */
+.msg-user {
+    display: flex;
+    justify-content: flex-end;
+    margin-bottom: 1.5rem;
+}
+.msg-user-bubble {
+    background: #141618;
+    border: 1px solid #1E2126;
+    border-radius: 12px 12px 2px 12px;
+    padding: 0.7rem 1rem;
+    max-width: 70%;
+    font-size: 0.84rem;
+    color: #D4DCEB;
+    line-height: 1.6;
+}
+.msg-assistant {
+    display: flex;
+    gap: 0.7rem;
+    margin-bottom: 1.75rem;
+    align-items: flex-start;
+}
+.msg-avatar {
+    width: 26px;
+    height: 26px;
+    border-radius: 5px;
+    background: #141618;
+    border: 1px solid #1E2126;
+    display: flex;
+    align-items: center;
+    justify-content: center;
+    font-size: 0.7rem;
+    color: #7B9EC4;
+    font-family: 'DM Serif Display', monospace;
+    flex-shrink: 0;
+    margin-top: 3px;
+    font-style: italic;
+}
+.msg-assistant-content { flex: 1; max-width: 88%; }
+.msg-assistant-bubble {
+    font-size: 0.84rem;
+    color: #A0AABB;
+    line-height: 1.8;
+}
+.msg-assistant-bubble strong { color: #D4DCEB; font-weight: 500; }
+.msg-assistant-bubble h1,.msg-assistant-bubble h2,.msg-assistant-bubble h3 {
+    font-family: 'DM Serif Display', serif;
+    color: #D4DCEB;
+    font-size: 0.92rem;
+    margin: 1rem 0 0.4rem;
+}
+.msg-assistant-bubble ul,.msg-assistant-bubble ol { padding-left: 1.2rem; margin: 0.4rem 0; }
+.msg-assistant-bubble li { margin-bottom: 0.25rem; }
+.msg-assistant-bubble table { width: 100%; border-collapse: collapse; margin: 0.6rem 0; font-size: 0.78rem; }
+.msg-assistant-bubble th {
+    text-align: left; padding: 0.35rem 0.7rem;
+    border-bottom: 1px solid #1C1E21;
+    color: #5A6070; font-weight: 500;
+    font-size: 0.66rem; letter-spacing: 0.07em; text-transform: uppercase;
+}
+.msg-assistant-bubble td { padding: 0.35rem 0.7rem; border-bottom: 1px solid #111315; color: #A0AABB; }
+
+/* ── meta ── */
+.meta-row {
+    display: flex; align-items: center; gap: 0.55rem;
+    margin-top: 0.55rem; flex-wrap: wrap;
+}
+.meta-chip {
+    font-size: 0.6rem; font-family: 'DM Mono', monospace;
+    padding: 2px 6px; border-radius: 3px;
+    letter-spacing: 0.04em; border: 1px solid;
+}
+.chip-factual     { color: #7B9EC4; border-color: #1E2E40; background: #0D1520; }
+.chip-comparative { color: #9E7BC4; border-color: #2A1E40; background: #150D20; }
+.chip-summary     { color: #9EC47B; border-color: #2A401E; background: #151D0D; }
+.chip-out_of_scope,.chip-web_search { color: #C4A87B; border-color: #402E1E; background: #20150D; }
+.confidence-dot { width: 5px; height: 5px; border-radius: 50%; display: inline-block; }
+.conf-high { background: #7B9EC4; }
+.conf-mid  { background: #9EC47B; }
+.conf-low  { background: #5A6070; }
+.conf-text { font-size: 0.6rem; font-family: 'DM Mono', monospace; color: #3C4250; }
+
+/* ── expander ── */
+[data-testid="stExpander"] {
+    background: transparent !important;
+    border: 1px solid #1C1E21 !important;
+    border-radius: 5px !important;
+    margin-top: 0.45rem !important;
+}
+[data-testid="stExpander"] summary {
+    font-size: 0.65rem !important;
+    color: #3C4250 !important;
+    font-family: 'DM Mono', monospace !important;
+    letter-spacing: 0.06em !important;
+    text-transform: uppercase !important;
+}
+[data-testid="stExpander"] p {
+    font-size: 0.7rem !important;
+    font-family: 'DM Mono', monospace !important;
+    color: #3C4250 !important;
+    line-height: 1.8 !important;
+}
+
+/* ── input ── */
+[data-testid="stChatInput"] {
+    position: fixed !important;
+    bottom: 1.5rem !important;
+    left: 230px !important;
+    right: 0 !important;
+    max-width: 820px !important;
+    margin: 0 auto !important;
+    padding: 0 3.5rem !important;
+}
+[data-testid="stChatInput"] textarea {
+    background: #101214 !important;
+    border: 1px solid #1C1E21 !important;
+    border-radius: 8px !important;
+    color: #D4DCEB !important;
+    font-family: 'DM Sans', sans-serif !important;
+    font-size: 0.84rem !important;
+    padding: 0.7rem 1rem !important;
+}
+[data-testid="stChatInput"] textarea:focus {
+    border-color: #3C4A60 !important;
+    box-shadow: none !important;
+}
+[data-testid="stChatInput"] textarea::placeholder { color: #252729 !important; }
+[data-testid="stChatInputSubmitButton"] {
+    background: #141618 !important;
+    border: 1px solid #252729 !important;
+    border-radius: 5px !important;
+}
+
+/* ── empty state ── */
+.empty-state { display: none; }
+</style>
+""", unsafe_allow_html=True)
+
+# ── core functions ────────────────────────────────────────
 def embed_text(text):
-    response = client_openai.embeddings.create(
-        input=text, model="text-embedding-3-small"
-    )
-    return response.data[0].embedding
+    r = client_openai.embeddings.create(input=text, model="text-embedding-3-small")
+    return r.data[0].embedding
 
 def classify_query(question):
-    response = client_anthropic.messages.create(
-        model="claude-sonnet-4-5",
-        max_tokens=10,
-        messages=[{"role": "user", "content": f"""Classify the following question into exactly one of these categories:
-factual - single metric or fact from one specific bank
-comparative - same metric or topic across multiple banks
-summary - broad qualitative question about a bank's approach or strategy
-out_of_scope - completely unrelated to banking and finance 
-              (e.g. sports, weather, cooking)
-              NOT out_of_scope: anything that could appear in a bank's annual report
-              including leadership, board, strategy, operations, ESG
-
-Respond with one word only: factual, comparative, summary, or out_of_scope
-
-Question: {question}"""}]
+    time_keywords = ["current", "today", "now", "latest", "right now", "as of today"]
+    if any(kw in question.lower() for kw in time_keywords):
+        return "out_of_scope"
+    r = client_anthropic.messages.create(
+        model="claude-sonnet-4-5", max_tokens=10,
+        messages=[{"role": "user", "content": f"""Classify into one of: factual / comparative / summary / out_of_scope
+factual - specific metric from one bank's annual report
+comparative - same metric across multiple banks
+summary - broad qualitative question about a bank's strategy
+out_of_scope - needs live data, current rates, or unrelated to Indian banking FY25
+One word only. Question: {question}"""}]
     )
-    return response.content[0].text.strip().lower()
+    return r.content[0].text.strip().lower()
 
 def hyde_retrieve(question, n_results=5):
-    response = client_anthropic.messages.create(
-        model="claude-sonnet-4-5",
-        max_tokens=300,
-        messages=[{"role": "user", "content": f"""Write a one-paragraph excerpt from an Indian bank annual report
-that would answer this question: {question}
-Use specific financial numbers and banking terminology.
-Respond with only the paragraph, no preamble."""}]
+    r = client_anthropic.messages.create(
+        model="claude-sonnet-4-5", max_tokens=300,
+        messages=[{"role": "user", "content": f"Write a one-paragraph Indian bank annual report excerpt answering: {question}\nUse specific numbers and banking terminology. Paragraph only."}]
     )
-    hyde_embedding = embed_text(response.content[0].text)
-    results = collection.query(
-        query_embeddings=[hyde_embedding],
-        n_results=n_results,
-        where={"level": "leaf"},
-        include=["documents", "metadatas", "distances"]
-    )
-    return [{"text": results["documents"][0][i], "metadata": results["metadatas"][0][i]}
-            for i in range(len(results["documents"][0]))]
+    emb = embed_text(r.content[0].text)
+    res = collection.query(query_embeddings=[emb], n_results=n_results, where={"level": "leaf"}, include=["documents", "metadatas", "distances"])
+    return [{"text": res["documents"][0][i], "metadata": res["metadatas"][0][i]} for i in range(len(res["documents"][0]))]
 
 def multi_query_retrieve(question, n_results=10):
-    response = client_anthropic.messages.create(
-        model="claude-sonnet-4-5",
-        max_tokens=200,
-        messages=[{"role": "user", "content": f"""Generate 3 different phrasings of this question for document retrieval:
-{question}
-Each phrasing should use different terminology to maximise retrieval coverage.
-Return as a numbered list. No explanation."""}]
+    r = client_anthropic.messages.create(
+        model="claude-sonnet-4-5", max_tokens=200,
+        messages=[{"role": "user", "content": f"Generate 3 different phrasings of this for document retrieval:\n{question}\nNumbered list only."}]
     )
-    paraphrases = [line.strip().lstrip("123.").strip()
-                   for line in response.content[0].text.strip().split("\n") if line.strip()]
-    all_chunks = {}
-    for paraphrase in paraphrases:
-        embedding = embed_text(paraphrase)
-        results = collection.query(
-            query_embeddings=[embedding],
-            n_results=n_results,
-            where={"level": {"$in": ["leaf", "summary_l1", "summary_l2"]}},
-            include=["documents", "metadatas", "distances"]
-        )
-        for i in range(len(results["documents"][0])):
-            key = results["documents"][0][i][:100]
-            if key not in all_chunks:
-                all_chunks[key] = {
-                    "text": results["documents"][0][i],
-                    "metadata": results["metadatas"][0][i],
-                    "distance": results["distances"][0][i]
-                }
-    return list(all_chunks.values())
+    paraphrases = [l.strip().lstrip("123.").strip() for l in r.content[0].text.strip().split("\n") if l.strip()]
+    seen = {}
+    for p in paraphrases:
+        res = collection.query(query_embeddings=[embed_text(p)], n_results=n_results,
+                               where={"level": {"$in": ["leaf", "summary_l1", "summary_l2"]}},
+                               include=["documents", "metadatas", "distances"])
+        for i in range(len(res["documents"][0])):
+            k = res["documents"][0][i][:100]
+            if k not in seen:
+                seen[k] = {"text": res["documents"][0][i], "metadata": res["metadatas"][0][i], "distance": res["distances"][0][i]}
+    return list(seen.values())
 
 def summary_retrieve(question):
-    embedding = embed_text(question)
-    results = collection.query(
-        query_embeddings=[embedding],
-        n_results=5,
-        where={"level": "summary_l2"},
-        include=["documents", "metadatas", "distances"]
-    )
-    return [{"text": results["documents"][0][i], "metadata": results["metadatas"][0][i]}
-            for i in range(len(results["documents"][0]))]
+    res = collection.query(query_embeddings=[embed_text(question)], n_results=5,
+                           where={"level": "summary_l2"}, include=["documents", "metadatas", "distances"])
+    return [{"text": res["documents"][0][i], "metadata": res["metadatas"][0][i]} for i in range(len(res["documents"][0]))]
 
 def retrieve_by_type(question, query_type, top_k=5):
-    if query_type == "factual":
-        return hyde_retrieve(question, n_results=top_k)
-    elif query_type == "comparative":
-        return multi_query_retrieve(question, n_results=top_k)
-    elif query_type == "summary":
-        return summary_retrieve(question)
+    if query_type == "factual": return hyde_retrieve(question, n_results=top_k)
+    elif query_type == "comparative": return multi_query_retrieve(question, n_results=top_k)
+    elif query_type == "summary": return summary_retrieve(question)
     return []
 
 def grade_context(question, context_text):
-    response = client_anthropic.messages.create(
-        model="claude-sonnet-4-5",
-        max_tokens=100,
-        messages=[{"role": "user", "content": f"""Given this question: {question}
-And this retrieved context: {context_text[:6000]}
-Rate how well the context answers the question on a scale of 0.0 to 1.0.
-0.0 = completely irrelevant. 0.5 = partially answers. 0.8 = mostly answers. 1.0 = fully answers.
-Important: if context contains relevant financial data even if incomplete, score at least 0.6.
-Respond with only: score|one-sentence rationale"""}]
+    r = client_anthropic.messages.create(
+        model="claude-sonnet-4-5", max_tokens=100,
+        messages=[{"role": "user", "content": f"Question: {question}\nContext: {context_text[:6000]}\nRate 0.0-1.0 how well context answers. Score>=0.6 if relevant data exists.\nRespond EXACTLY: 0.85|one sentence only. Nothing else."}]
     )
-    parts = response.content[0].text.strip().split("|")
-    return float(parts[0].strip()), parts[1].strip() if len(parts) > 1 else ""
+    import re
+    raw = r.content[0].text.strip()
+    try:
+        if "|" in raw:
+            parts = raw.split("|", 1)
+            return float(parts[0].strip()), parts[1].strip()
+        match = re.search(r"(\d+\.?\d*)", raw)
+        return (float(match.group(1)) if match else 0.5), raw
+    except Exception:
+        return 0.5, "parse error"
 
 def generate_answer(question, chunks):
-    context = "\n\n".join([
-        f"[{c['metadata']['bank_name']}, Page {c['metadata'].get('page_number', 'N/A')}, {c['metadata']['level']}]\n{c['text']}"
-        for c in chunks
-    ])
-    response = client_anthropic.messages.create(
-        model="claude-sonnet-4-5",
-        max_tokens=1000,
-        messages=[{"role": "user", "content": f"""You are a financial analyst assistant. Answer only based on the provided context.
-For every fact or number you state, cite the source as [Bank Name, Page X].
-If the context does not contain the answer, say: 'Not found in provided reports.'
-
-Context:
-{context}
-
-Question: {question}"""}]
+    ctx = "\n\n".join([f"[{c['metadata']['bank_name']}, Page {c['metadata'].get('page_number','N/A')}, {c['metadata']['level']}]\n{c['text']}" for c in chunks])
+    r = client_anthropic.messages.create(
+        model="claude-sonnet-4-5", max_tokens=1000,
+        messages=[{"role": "user", "content": f"""Financial analyst assistant. Answer from context only.
+1. Cite every fact as [Bank, Page X]. 2. All figures are FY25. 3. Use data even without FY25 label.
+4. Say 'Not found' only if truly absent. 5. Never say 'not found' then quote data.
+Context:\n{ctx}\nQuestion: {question}"""}]
     )
-    return response.content[0].text
+    return r.content[0].text
+
+def web_search_fallback(question):
+    res = tavily_client.search(query=question + " 2026", search_depth="advanced", max_results=3)
+    ctx = ""
+    sources = []
+    for r in res["results"]:
+        ctx += f"[{r['url']}]\n{r['content']}\n\n"
+        sources.append(("Web", r['url'][:50]))
+    r = client_anthropic.messages.create(
+        model="claude-sonnet-4-5", max_tokens=800,
+        messages=[{"role": "user", "content": f"Answer using web results. Year is 2026. Use most recent data. Cite URLs.\n\n{ctx}\nQuestion: {question}"}]
+    )
+    return {"answer": r.content[0].text, "confidence": 0.5, "query_type": "web_search", "sources": sources}
 
 def query_with_grading(question):
-    query_type = classify_query(question)
-    if query_type == "out_of_scope":
-        return {"answer": "Not found in provided reports.", "confidence": 0.0,
-                "query_type": query_type, "sources": []}
-    top_k = 10 if query_type == "comparative" else 5
-    chunks = retrieve_by_type(question, query_type, top_k=top_k)
-    context_text = " ".join([c["text"] for c in chunks])
-    score, rationale = grade_context(question, context_text)
+    qt = classify_query(question)
+    if qt == "out_of_scope":
+        return web_search_fallback(question)
+    top_k = 10 if qt == "comparative" else 5
+    chunks = retrieve_by_type(question, qt, top_k=top_k)
+    ctx = " ".join([c["text"] for c in chunks])
+    score, _ = grade_context(question, ctx)
     if score < 0.4:
-        chunks = retrieve_by_type(question, query_type, top_k=top_k + 8)
-        context_text = " ".join([c["text"] for c in chunks])
-        score, rationale = grade_context(question, context_text)
+        chunks = retrieve_by_type(question, qt, top_k=top_k + 8)
+        ctx = " ".join([c["text"] for c in chunks])
+        score, _ = grade_context(question, ctx)
     if score < 0.3:
-        return {"answer": "Insufficient context found in provided reports.",
-                "confidence": score, "query_type": query_type, "sources": []}
+        return web_search_fallback(question)
     answer = generate_answer(question, chunks)
-    sources = list({(c["metadata"]["bank_name"], c["metadata"].get("page_number", "N/A"))
-                    for c in chunks})
-    return {"answer": answer, "confidence": score, "query_type": query_type, "sources": sources}
+    sources = list({(c["metadata"]["bank_name"], c["metadata"].get("page_number", "N/A")) for c in chunks})
+    return {"answer": answer, "confidence": score, "query_type": qt, "sources": sources}
 
-# ── streamlit UI ─────────────────────────────────────────
-st.set_page_config(page_title="Financial RAG Analyst", page_icon="🏦", layout="wide")
-
-st.title("🏦 Financial RAG Analyst")
-st.caption("Ask questions across 5 Indian bank FY25 annual reports")
-
-# sidebar
+# ── sidebar ───────────────────────────────────────────────
 with st.sidebar:
-    st.header("Example Queries")
-    st.markdown("**Factual**")
-    if st.button("HDFC Bank NPA ratio FY25?"):
-        st.session_state.example = "What was HDFC Bank's gross NPA ratio in FY25?"
-    if st.button("SBI net interest margin?"):
-        st.session_state.example = "What was SBI's net interest margin in FY25?"
-    
-    st.markdown("**Comparative**")
-    if st.button("Compare CAR across all banks"):
-        st.session_state.example = "Compare capital adequacy ratios across all 5 banks."
-    if st.button("Which bank had highest ROE?"):
-        st.session_state.example = "Which bank had the highest return on equity in FY25?"
-    
-    st.markdown("**Summary**")
-    if st.button("ICICI risk management"):
-        st.session_state.example = "Summarise ICICI Bank's risk management approach."
-    if st.button("HDFC strategy FY25"):
-        st.session_state.example = "What was HDFC Bank's strategy in FY25?"
-    
-    st.divider()
-    st.caption("5 banks · FY25 · ~11,600 chunks indexed")
+    st.markdown('<div class="sidebar-logo">Financial RAG</div>', unsafe_allow_html=True)
+    st.markdown('<div class="sidebar-sub">Annual Report Analyst</div>', unsafe_allow_html=True)
+    st.markdown('<hr class="sidebar-divider">', unsafe_allow_html=True)
 
-# chat history
+    st.markdown('<div class="sidebar-section">About</div>', unsafe_allow_html=True)
+    st.markdown("""<div class="sidebar-body">
+        Query FY25 annual reports of 5 major Indian banks using natural language.
+        Answers are sourced directly from the documents with page-level citations.
+        Falls back to live web search when data isn't in the reports.
+    </div>""", unsafe_allow_html=True)
+
+    st.markdown('''<div class="sidebar-section">Index</div>
+<div class="sidebar-tree">
+  <div class="tree-parent">Banks</div>
+  <div class="tree-children">HDFC &nbsp;·&nbsp; ICICI &nbsp;·&nbsp; SBI &nbsp;·&nbsp; Axis &nbsp;·&nbsp; Kotak</div>
+  <div class="tree-parent" style="margin-top:0.35rem">Period</div>
+  <div class="tree-children">FY 2024–25</div>
+</div>''', unsafe_allow_html=True)
+
+    st.markdown('<hr class="sidebar-divider">', unsafe_allow_html=True)
+    st.markdown('<div class="sidebar-section">Try asking</div>', unsafe_allow_html=True)
+
+    examples = [
+        ("HDFC NPA ratio", "What was HDFC Bank's gross NPA ratio in FY25?"),
+        ("Compare CAR — all banks", "Compare capital adequacy ratios across all 5 banks."),
+        ("SBI net interest margin", "What was SBI's net interest margin in FY25?"),
+        ("ICICI risk approach", "Summarise ICICI Bank's risk management approach."),
+        ("Highest ROE?", "Which bank had the highest return on equity in FY25?"),
+        ("Current repo rate", "What is the current RBI repo rate?"),
+    ]
+    for label, query in examples:
+        if st.button(label, key=f"ex_{label}"):
+            st.session_state.prefill = query
+            st.rerun()
+
+    st.markdown('<hr class="sidebar-divider">', unsafe_allow_html=True)
+    st.markdown("""<div style="margin-bottom:0.4rem">
+        <span class="sidebar-tag">RAPTOR</span>
+        <span class="sidebar-tag">HyDE</span>
+        <span class="sidebar-tag">Multi-Query</span>
+    </div>
+    <div>
+        <span class="sidebar-tag">LLM Router</span>
+        <span class="sidebar-tag">Adaptive RAG</span>
+        <span class="sidebar-tag">Web Search</span>
+    </div>""", unsafe_allow_html=True)
+
+# ── session state ─────────────────────────────────────────
 if "messages" not in st.session_state:
     st.session_state.messages = []
 
-# display chat history
-for message in st.session_state.messages:
-    with st.chat_message(message["role"]):
-        st.markdown(message["content"])
-        if message["role"] == "assistant" and "sources" in message:
-            col1, col2 = st.columns(2)
-            with col1:
-                st.caption(f"Query type: `{message['query_type']}`")
-            with col2:
-                confidence = message["confidence"]
-                color = "🟢" if confidence >= 0.8 else "🟡" if confidence >= 0.6 else "🔴"
-                query_label = result["query_type"]
-                if query_label == "web_search":
-                    query_label = "web search 🌐"
-                st.caption(f"Confidence: {color} {confidence:.2f}")
-            if message["sources"]:
-                with st.expander("📄 Sources"):
-                    for bank, page in sorted(message["sources"]):
-                        st.caption(f"• {bank} — Page {page}")
+prompt = None
+if "pending" in st.session_state:
+    prompt = st.session_state.pending
+    del st.session_state.pending
 
-# handle example button clicks
-if "example" in st.session_state:
-    prompt = st.session_state.example
-    del st.session_state.example
-else:
-    prompt = None
+# prefill: inject into chat input via JS
+prefill_val = ""
+if "prefill" in st.session_state:
+    prefill_val = st.session_state.prefill
+    del st.session_state.prefill
 
-# chat input
-user_input = st.chat_input("Ask about Indian banks...")
+# ── main layout ───────────────────────────────────────────
+st.markdown('<div class="main-area">', unsafe_allow_html=True)
+st.markdown('''<div class="page-hero">
+    <div class="chat-header">Ask the reports</div>
+    <div class="chat-subheader">5 banks &nbsp;·&nbsp; FY25 &nbsp;·&nbsp; HDFC &nbsp;·&nbsp; ICICI &nbsp;·&nbsp; SBI &nbsp;·&nbsp; Axis &nbsp;·&nbsp; Kotak</div>
+</div>''', unsafe_allow_html=True)
+
+if not st.session_state.messages:
+    st.markdown("""<div class="empty-state">
+        <div class="empty-state-glyph">ask</div>
+        <div class="empty-state-text">a question to begin</div>
+    </div>""", unsafe_allow_html=True)
+
+for msg in st.session_state.messages:
+    if msg["role"] == "user":
+        st.markdown(f'<div class="msg-user"><div class="msg-user-bubble">{msg["content"]}</div></div>',
+                    unsafe_allow_html=True)
+    else:
+        qt = msg.get("query_type", "factual")
+        conf = msg.get("confidence", 0)
+        conf_cls = "conf-high" if conf >= 0.8 else "conf-mid" if conf >= 0.6 else "conf-low"
+        # render avatar + meta in HTML, content via st.markdown to avoid injection
+        st.markdown(f'''<div class="msg-assistant">
+            <div class="msg-avatar">r</div>
+            <div class="msg-assistant-content">''', unsafe_allow_html=True)
+        st.markdown(f'<div class="msg-assistant-bubble">', unsafe_allow_html=True)
+        st.markdown(msg["content"])
+        st.markdown('</div>', unsafe_allow_html=True)
+        st.markdown(f'''<div class="meta-row">
+            <span class="meta-chip chip-{qt}">{qt.replace("_"," ")}</span>
+            <span class="confidence-dot {conf_cls}"></span>
+            <span class="conf-text">{conf:.2f}</span>
+        </div></div></div>''', unsafe_allow_html=True)
+        if msg.get("sources"):
+            unique_sources = list({(b, str(p)) for b, p in msg["sources"] if str(p) != "N/A"})
+            unique_sources.sort(key=lambda x: x[0])
+            if unique_sources:
+                with st.expander(f"sources · {len(unique_sources)} referenced"):
+                    for bank, page in unique_sources:
+                        st.caption(f"{bank}  ·  pg {page}")
+
+st.markdown('</div>', unsafe_allow_html=True)
+
+# ── input ─────────────────────────────────────────────────
+user_input = st.chat_input("ask a question")
 if user_input:
     prompt = user_input
 
-if prompt:
-    # show user message
-    st.session_state.messages.append({"role": "user", "content": prompt})
-    with st.chat_message("user"):
-        st.markdown(prompt)
+# inject prefill value via JS into the chat input
+if prefill_val:
+    st.markdown(f"""<script>
+    (function() {{
+        const inputs = window.parent.document.querySelectorAll('[data-testid="stChatInputTextArea"]');
+        if (inputs.length > 0) {{
+            const nativeInputValueSetter = Object.getOwnPropertyDescriptor(window.HTMLTextAreaElement.prototype, 'value').set;
+            nativeInputValueSetter.call(inputs[0], {repr(prefill_val)});
+            inputs[0].dispatchEvent(new Event('input', {{ bubbles: true }}));
+            inputs[0].focus();
+        }}
+    }})();
+    </script>""", unsafe_allow_html=True)
 
-    # generate response
-    with st.chat_message("assistant"):
-        with st.spinner("Thinking..."):
-            result = query_with_grading(prompt)
-        
-        st.markdown(result["answer"])
-        
-        col1, col2 = st.columns(2)
-        with col1:
-            st.caption(f"Query type: `{result['query_type']}`")
-        with col2:
-            confidence = result["confidence"]
-            color = "🟢" if confidence >= 0.8 else "🟡" if confidence >= 0.6 else "🔴"
-            query_label = result["query_type"]
-            if query_label == "web_search":
-                query_label = "web search 🌐"
-            st.caption(f"Confidence: {color} {confidence:.2f}")
-        
-        if result["sources"]:
-            with st.expander("📄 Sources"):
-                for bank, page in sorted(result["sources"]):
-                    st.caption(f"• {bank} — Page {page}")
-    
+if prompt:
+    st.session_state.messages.append({"role": "user", "content": prompt})
+    with st.spinner(""):
+        result = query_with_grading(prompt)
     st.session_state.messages.append({
         "role": "assistant",
         "content": result["answer"],
@@ -311,3 +558,4 @@ if prompt:
         "confidence": result["confidence"],
         "query_type": result["query_type"]
     })
+    st.rerun()
