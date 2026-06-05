@@ -337,7 +337,7 @@ def hyde_retrieve(question, n_results=5):
 
 def multi_query_retrieve(question, n_results=10):
     r = client_anthropic.messages.create(
-        model="claude-sonnet-4-5", max_tokens=200,
+        model="claude-sonnet-4-5", max_tokens=200, temperature = 0,
         messages=[{"role": "user", "content": f"Generate 3 different phrasings of this for document retrieval:\n{question}\nNumbered list only."}]
     )
     paraphrases = [l.strip().lstrip("123.").strip() for l in r.content[0].text.strip().split("\n") if l.strip()]
@@ -380,13 +380,32 @@ def grade_context(question, context_text):
         return 0.5, "parse error"
 
 def generate_answer(question, chunks):
-    ctx = "\n\n".join([f"[{c['metadata']['bank_name']}, Page {c['metadata'].get('page_number','N/A')}, {c['metadata']['level']}]\n{c['text']}" for c in chunks])
+    context_parts = []
+    for chunk in chunks:
+        bank = chunk["metadata"]["bank_name"]
+        level = chunk["metadata"]["level"]
+        page = chunk["metadata"].get("page_number", "N/A")
+        if level == "leaf" and str(page) != "N/A":
+            citation = f"[{bank}, Page {page}]"
+        else:
+            citation = f"[{bank}, FY25 Annual Report]"
+        context_parts.append(f"{citation}\n{chunk['text']}")
+    ctx = "\n\n".join(context_parts)
     r = client_anthropic.messages.create(
-        model="claude-sonnet-4-5", max_tokens=1000,
-        messages=[{"role": "user", "content": f"""Financial analyst assistant. Answer from context only.
-1. Cite every fact as [Bank, Page X]. 2. All figures are FY25. 3. Use data even without FY25 label.
-4. Say 'Not found' only if truly absent. 5. Never say 'not found' then quote data.
-Context:\n{ctx}\nQuestion: {question}"""}]
+        model="claude-sonnet-4-5", max_tokens=1000, temperature = 0,
+        messages=[{"role": "user", "content": f"""You are a financial analyst assistant. Answer only from the provided context.
+Citation rules — follow exactly:
+- Use the citation tag shown before each context block as-is
+- For [Bank, Page X] sources: cite as [Bank, Page X]
+- For [Bank, FY25 Annual Report] sources: cite as [Bank, FY25 Annual Report]
+- Never write Page N/A — if no page number exists use FY25 Annual Report
+- One citation per fact. All figures are FY25.
+- Never say not found and then quote data.
+
+Context:
+{ctx}
+
+Question: {question}"""}]
     )
     return r.content[0].text
 
@@ -409,6 +428,8 @@ def query_with_grading(question):
         return web_search_fallback(question)
     top_k = 10 if qt == "comparative" else 5
     chunks = retrieve_by_type(question, qt, top_k=top_k)
+    # sort for consistency
+    chunks = sorted(chunks, key=lambda x: x["metadata"]["bank_name"])
     ctx = " ".join([c["text"] for c in chunks])
     score, _ = grade_context(question, ctx)
     if score < 0.4:
