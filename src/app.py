@@ -5,19 +5,12 @@ from openai import OpenAI
 from tavily import TavilyClient
 import os
 from dotenv import load_dotenv
-from supabase import create_client
 
 load_dotenv(override=True)
 
 client_anthropic = anthropic.Anthropic(api_key=os.getenv("ANTHROPIC_API_KEY"))
 client_openai = OpenAI(api_key=os.getenv("OPENAI_API_KEY"))
 tavily_client = TavilyClient(api_key=os.getenv("TAVILY_API_KEY"))
-
-# ── supabase client ──────────────────────────────────────
-supabase_client = create_client(
-    os.getenv("SUPABASE_URL"),
-    os.getenv("SUPABASE_KEY")
-)
 
 client_chroma = chromadb.PersistentClient(path="./chroma_db")
 collection = client_chroma.get_or_create_collection(
@@ -39,46 +32,18 @@ st.markdown("""
 html, body, [class*="css"] { font-family: 'DM Sans', sans-serif; }
 #MainMenu, footer { visibility: hidden; }
 header { visibility: visible !important; }
-.block-container { padding: 0 2rem 8rem 2rem !important; max-width: 860px !important; margin: 0 auto !important; }
+.block-container { padding: 0 !important; max-width: 100% !important; }
 [data-testid="stAppViewContainer"] { background: #0C0D0E; }
 [data-testid="stHeader"] { background: transparent !important; }
 
-/* ── hide sidebar collapse/expand arrows — sidebar stays fixed ── */
-[data-testid="stSidebarCollapseButton"] { display: none !important; }
-[data-testid="collapsedControl"] { display: none !important; }
-
 /* ── sidebar ── */
-.sidebar-logo-row {
-    display: flex;
-    align-items: center;
-    justify-content: space-between;
-    margin-bottom: 0.1rem;
-    margin-top: 0.2rem;
-}
-.sidebar-arrow {
-    font-size: 0.75rem;
-    color: #7B9EC4;
-    cursor: pointer;
-    opacity: 0.8;
-    font-family: sans-serif;
-}
-
 [data-testid="stSidebar"] {
     background: #101214 !important;
     border-right: 1px solid #1C1E21 !important;
     min-width: 230px !important;
     max-width: 230px !important;
 }
-[data-testid="stSidebarContent"] { padding: 0.75rem 0.9rem !important; }
-[data-testid="stSidebar"] > div:first-child { padding-top: 0 !important; margin-top: 0 !important; }
-[data-testid="stSidebarHeader"] { display: none !important; min-height: 0 !important; height: 0 !important; padding: 0 !important; }
-[data-testid="stSidebar"] .stMarkdown { margin: 0 !important; padding: 0 !important; }
-[data-testid="stSidebar"] .stMarkdown p { margin: 0 !important; padding: 0 !important; }
-[data-testid="stSidebar"] .element-container { margin: 0 !important; padding: 0 !important; min-height: 0 !important; }
-[data-testid="stSidebar"] .stButton { margin: 0 !important; padding: 0 !important; }
-[data-testid="stSidebar"] .element-container:has(.stButton) { margin: 0 !important; padding: 0 !important; }
-[data-testid="stSidebar"] [data-testid="stVerticalBlock"] { gap: 0 !important; }
-[data-testid="stSidebar"] [data-testid="stVerticalBlockBorderWrapper"] { padding: 0 !important; margin: 0 !important; }
+[data-testid="stSidebar"] > div { padding: 1.5rem 1.25rem; }
 
 .sidebar-logo {
     font-family: 'DM Serif Display', serif;
@@ -92,12 +57,12 @@ header { visibility: visible !important; }
     color: #4A5570;
     letter-spacing: 0.09em;
     text-transform: uppercase;
-    margin-bottom: 0.3rem;
+    margin-bottom: 0.6rem;
 }
 .sidebar-divider {
     border: none;
     border-top: 1px solid #1C1E21;
-    margin: 0.4rem 0;
+    margin: 0.65rem 0;
 }
 .sidebar-section {
     font-size: 0.63rem;
@@ -105,14 +70,13 @@ header { visibility: visible !important; }
     color: #7B8A9E;
     letter-spacing: 0.1em;
     text-transform: uppercase;
-    margin-bottom: 0.55rem;
-    margin-top: 0.3rem;
+    margin-bottom: 0.35rem;
 }
 .sidebar-body {
     font-size: 0.72rem;
     color: #7B8A9E;
     line-height: 1.6;
-    margin-bottom: 0.25rem;
+    margin-bottom: 0.6rem;
 }
 .sidebar-tag {
     display: inline-block;
@@ -125,26 +89,24 @@ header { visibility: visible !important; }
     margin: 2px 2px 2px 0;
 }
 .sidebar-tree {
-    margin-bottom: 0.25rem;
+    margin-bottom: 0.6rem;
 }
 .tree-parent {
-    font-size: 0.63rem;
+    font-size: 0.65rem;
     font-weight: 500;
     color: #7B8A9E;
     letter-spacing: 0.05em;
     text-transform: uppercase;
-    margin-bottom: 0.1rem;
-    margin-top: 0.2rem;
+    margin-bottom: 0.15rem;
     padding-left: 0;
 }
 .tree-children {
-    font-size: 0.67rem;
+    font-size: 0.68rem;
     font-family: 'DM Mono', monospace;
     color: #7B9EC4;
-    padding-left: 0.6rem;
+    padding-left: 0.75rem;
     border-left: 1px solid #1E2E40;
-    line-height: 1.4;
-    margin-bottom: 0.1rem;
+    line-height: 1.6;
 }
 .sidebar-stat {
     font-size: 0.68rem;
@@ -160,9 +122,6 @@ header { visibility: visible !important; }
 }
 
 /* ── sidebar buttons ── */
-[data-testid="stSidebar"] .stButton:first-of-type > button {
-    margin-top: 0.4rem !important;
-}
 [data-testid="stSidebar"] .stButton > button {
     background: transparent !important;
     border: 1px solid #1C1E21 !important;
@@ -184,8 +143,8 @@ header { visibility: visible !important; }
 
 /* ── main area ── */
 .main-area {
-    padding: 2rem 5rem 10rem 5rem;
-    max-width: 860px;
+    padding: 0 3.5rem 7rem 3.5rem;
+    max-width: 820px;
     margin: 0 auto;
 }
 .page-hero {
@@ -214,8 +173,6 @@ header { visibility: visible !important; }
     display: flex;
     justify-content: flex-end;
     margin-bottom: 1.5rem;
-    margin-left: 1rem;
-    margin-right: 1rem;
 }
 .msg-user-bubble {
     background: #141618;
@@ -231,8 +188,6 @@ header { visibility: visible !important; }
     display: flex;
     gap: 0.7rem;
     margin-bottom: 1.75rem;
-    margin-left: 1rem;
-    margin-right: 1rem;
     align-items: flex-start;
 }
 .msg-avatar {
@@ -318,9 +273,13 @@ header { visibility: visible !important; }
 
 /* ── input ── */
 [data-testid="stChatInput"] {
-    max-width: 860px !important;
-    margin-left: auto !important;
-    margin-right: auto !important;
+    position: fixed !important;
+    bottom: 1.5rem !important;
+    left: 230px !important;
+    right: 0 !important;
+    max-width: 820px !important;
+    margin: 0 auto !important;
+    padding: 0 3.5rem !important;
 }
 [data-testid="stChatInput"] textarea {
     background: #101214 !important;
@@ -329,17 +288,17 @@ header { visibility: visible !important; }
     color: #D4DCEB !important;
     font-family: 'DM Sans', sans-serif !important;
     font-size: 0.84rem !important;
-    padding: 0.75rem 1rem !important;
+    padding: 0.7rem 1rem !important;
 }
 [data-testid="stChatInput"] textarea:focus {
     border-color: #3C4A60 !important;
     box-shadow: none !important;
 }
-[data-testid="stChatInput"] textarea::placeholder { color: #3A3D42 !important; }
+[data-testid="stChatInput"] textarea::placeholder { color: #252729 !important; }
 [data-testid="stChatInputSubmitButton"] {
     background: #141618 !important;
     border: 1px solid #252729 !important;
-    border-radius: 6px !important;
+    border-radius: 5px !important;
 }
 
 /* ── empty state ── */
@@ -357,7 +316,7 @@ def classify_query(question):
     if any(kw in question.lower() for kw in time_keywords):
         return "out_of_scope"
     r = client_anthropic.messages.create(
-        model="claude-sonnet-4-5", max_tokens=10, temperature=0,
+        model="claude-sonnet-4-5", max_tokens=10,
         messages=[{"role": "user", "content": f"""Classify into one of: factual / comparative / summary / out_of_scope
 factual - specific metric from one bank's annual report
 comparative - same metric across multiple banks
@@ -406,16 +365,9 @@ def retrieve_by_type(question, query_type, top_k=5):
 
 def grade_context(question, context_text):
     r = client_anthropic.messages.create(
-        model="claude-sonnet-4-5", max_tokens=100, temperature=0,
-        messages=[{"role": "user", "content": f"""Question: {question}
-        Context: {context_text[:6000]}
-
-        Does the context contain a specific answer to this question?
-        - If the exact metric/figure asked for is present: score 0.8-1.0
-        - If related but different metrics are present: score 0.3-0.5
-        - If completely irrelevant: score 0.0-0.2
-
-        Respond EXACTLY: 0.85|one sentence only. Nothing else."""}]    )
+        model="claude-sonnet-4-5", max_tokens=100,
+        messages=[{"role": "user", "content": f"Question: {question}\nContext: {context_text[:6000]}\nRate 0.0-1.0 how well context answers. Score>=0.6 if relevant data exists.\nRespond EXACTLY: 0.85|one sentence only. Nothing else."}]
+    )
     import re
     raw = r.content[0].text.strip()
     try:
@@ -470,29 +422,13 @@ def web_search_fallback(question):
     )
     return {"answer": r.content[0].text, "confidence": 0.5, "query_type": "web_search", "sources": sources}
 
-def log_query(question, query_type, confidence, answer, web_search_used, sources):
-    """Log every query to Supabase for analytics and A/B testing."""
-    try:
-        sources_str = ", ".join([f"{b} pg{p}" for b, p in sources if str(p) != "N/A"]) if sources else ""
-        supabase_client.table("chat_history").insert({
-            "question": question,
-            "query_type": query_type,
-            "confidence": float(confidence),
-            "answer": answer[:2000],  # truncate very long answers
-            "web_search_used": query_type == "web_search",
-            "sources": sources_str
-        }).execute()
-    except Exception as e:
-        pass  # never let logging break the app
-
 def query_with_grading(question):
     qt = classify_query(question)
     if qt == "out_of_scope":
-        result = web_search_fallback(question)
-        log_query(question, result["query_type"], result["confidence"], result["answer"], True, result["sources"])
-        return result
+        return web_search_fallback(question)
     top_k = 10 if qt == "comparative" else 5
     chunks = retrieve_by_type(question, qt, top_k=top_k)
+    # sort for consistency
     chunks = sorted(chunks, key=lambda x: x["metadata"]["bank_name"])
     ctx = " ".join([c["text"] for c in chunks])
     score, _ = grade_context(question, ctx)
@@ -501,51 +437,34 @@ def query_with_grading(question):
         ctx = " ".join([c["text"] for c in chunks])
         score, _ = grade_context(question, ctx)
     if score < 0.3:
-        result = web_search_fallback(question)
-        log_query(question, result["query_type"], result["confidence"], result["answer"], True, result["sources"])
-        return result
+        return web_search_fallback(question)
     answer = generate_answer(question, chunks)
-
-    # ── catch "not found" answers and fall back to web search ──
-    not_found_phrases = [
-        "not found in", "not mentioned", "not available in",
-        "does not include", "not provided in", "cannot find",
-        "no information", "not present in"
-    ]
-    if any(phrase in answer.lower() for phrase in not_found_phrases):
-        result = web_search_fallback(question)
-        log_query(question, result["query_type"], result["confidence"], result["answer"], True, result["sources"])
-        return result
-
     sources = list({(c["metadata"]["bank_name"], c["metadata"].get("page_number", "N/A")) for c in chunks})
-    log_query(question, qt, score, answer, False, sources)
     return {"answer": answer, "confidence": score, "query_type": qt, "sources": sources}
 
 # ── sidebar ───────────────────────────────────────────────
 with st.sidebar:
-    st.markdown('''
-    <div class="sidebar-logo-row">
-        <span class="sidebar-logo">Financial RAG</span>
-        
-    </div>
-    <div class="sidebar-sub">Annual Report Analysis</div>
-    <hr class="sidebar-divider">
-    <div class="sidebar-section">About</div>
-    <div class="sidebar-body">
-        Query FY25 annual reports of 5 Indian banks.
-        Answers sourced directly from the reports.
-        Falls back to web search when data isn't in the reports.
-    </div>
-    <div class="sidebar-section">Index</div>
-    <div class="sidebar-tree">
-        <div class="tree-parent">Banks</div>
-        <div class="tree-children">HDFC &nbsp;·&nbsp; ICICI &nbsp;·&nbsp; SBI &nbsp;·&nbsp; Axis &nbsp;·&nbsp; Kotak</div>
-        <div class="tree-parent">Period</div>
-        <div class="tree-children">FY 2024–25</div>
-    </div>
-    <hr class="sidebar-divider">
-    <div class="sidebar-section" style="margin-bottom: 0.6rem; padding-bottom: 0.3rem;">Try asking</div>
-    ''', unsafe_allow_html=True)
+    st.markdown('<div class="sidebar-logo">Financial RAG</div>', unsafe_allow_html=True)
+    st.markdown('<div class="sidebar-sub">Annual Report Analyst</div>', unsafe_allow_html=True)
+    st.markdown('<hr class="sidebar-divider">', unsafe_allow_html=True)
+
+    st.markdown('<div class="sidebar-section">About</div>', unsafe_allow_html=True)
+    st.markdown("""<div class="sidebar-body">
+        Query FY25 annual reports of 5 major Indian banks using natural language.
+        Answers are sourced directly from the documents with page-level citations.
+        Falls back to live web search when data isn't in the reports.
+    </div>""", unsafe_allow_html=True)
+
+    st.markdown('''<div class="sidebar-section">Index</div>
+<div class="sidebar-tree">
+  <div class="tree-parent">Banks</div>
+  <div class="tree-children">HDFC &nbsp;·&nbsp; ICICI &nbsp;·&nbsp; SBI &nbsp;·&nbsp; Axis &nbsp;·&nbsp; Kotak</div>
+  <div class="tree-parent" style="margin-top:0.35rem">Period</div>
+  <div class="tree-children">FY 2024–25</div>
+</div>''', unsafe_allow_html=True)
+
+    st.markdown('<hr class="sidebar-divider">', unsafe_allow_html=True)
+    st.markdown('<div class="sidebar-section">Try asking</div>', unsafe_allow_html=True)
 
     examples = [
         ("HDFC NPA ratio", "What was HDFC Bank's gross NPA ratio in FY25?"),
@@ -553,15 +472,15 @@ with st.sidebar:
         ("SBI net interest margin", "What was SBI's net interest margin in FY25?"),
         ("ICICI risk approach", "Summarise ICICI Bank's risk management approach."),
         ("Highest ROE?", "Which bank had the highest return on equity in FY25?"),
+        ("Current repo rate", "What is the current RBI repo rate?"),
     ]
     for label, query in examples:
         if st.button(label, key=f"ex_{label}"):
-            st.session_state.pending = query
+            st.session_state.prefill = query
             st.rerun()
 
-    st.markdown('''
-    <hr class="sidebar-divider">
-    <div style="margin-bottom:0.25rem">
+    st.markdown('<hr class="sidebar-divider">', unsafe_allow_html=True)
+    st.markdown("""<div style="margin-bottom:0.4rem">
         <span class="sidebar-tag">RAPTOR</span>
         <span class="sidebar-tag">HyDE</span>
         <span class="sidebar-tag">Multi-Query</span>
@@ -570,8 +489,7 @@ with st.sidebar:
         <span class="sidebar-tag">LLM Router</span>
         <span class="sidebar-tag">Adaptive RAG</span>
         <span class="sidebar-tag">Web Search</span>
-    </div>
-    ''', unsafe_allow_html=True)
+    </div>""", unsafe_allow_html=True)
 
 # ── session state ─────────────────────────────────────────
 if "messages" not in st.session_state:
@@ -582,12 +500,24 @@ if "pending" in st.session_state:
     prompt = st.session_state.pending
     del st.session_state.pending
 
+# prefill: inject into chat input via JS
+prefill_val = ""
+if "prefill" in st.session_state:
+    prefill_val = st.session_state.prefill
+    del st.session_state.prefill
+
 # ── main layout ───────────────────────────────────────────
 st.markdown('<div class="main-area">', unsafe_allow_html=True)
 st.markdown('''<div class="page-hero">
     <div class="chat-header">Ask the reports</div>
     <div class="chat-subheader">5 banks &nbsp;·&nbsp; FY25 &nbsp;·&nbsp; HDFC &nbsp;·&nbsp; ICICI &nbsp;·&nbsp; SBI &nbsp;·&nbsp; Axis &nbsp;·&nbsp; Kotak</div>
 </div>''', unsafe_allow_html=True)
+
+if not st.session_state.messages:
+    st.markdown("""<div class="empty-state">
+        <div class="empty-state-glyph">ask</div>
+        <div class="empty-state-text">a question to begin</div>
+    </div>""", unsafe_allow_html=True)
 
 for msg in st.session_state.messages:
     if msg["role"] == "user":
@@ -597,53 +527,46 @@ for msg in st.session_state.messages:
         qt = msg.get("query_type", "factual")
         conf = msg.get("confidence", 0)
         conf_cls = "conf-high" if conf >= 0.8 else "conf-mid" if conf >= 0.6 else "conf-low"
-        # Use st.chat_message to avoid broken split-HTML fragments
-        with st.container():
-            col_avatar, col_body = st.columns([0.04, 0.96])
-            with col_avatar:
-                st.markdown('', unsafe_allow_html=True)
-            with col_body:
-                st.markdown(f'<div class="msg-assistant-bubble">', unsafe_allow_html=True)
-                st.markdown(msg["content"])
-                st.markdown(f'''<div class="meta-row">
-                    <span class="meta-chip chip-{qt}">{qt.replace("_"," ")}</span>
-                    <span class="confidence-dot {conf_cls}"></span>
-                    <span class="conf-text">{conf:.2f}</span>
-                </div>''', unsafe_allow_html=True)
-                if msg.get("sources"):
-                    unique_sources = list({(b, str(p)) for b, p in msg["sources"] if str(p) != "N/A"})
-                    unique_sources.sort(key=lambda x: x[0])
-                    if unique_sources:
-                        with st.expander(f"sources · {len(unique_sources)} referenced"):
-                            for bank, page in unique_sources:
-                                st.caption(f"{bank}  ·  pg {page}")
-        st.markdown('<div style="margin-bottom:1.75rem"></div>', unsafe_allow_html=True)
+        # render avatar + meta in HTML, content via st.markdown to avoid injection
+        st.markdown(f'''<div class="msg-assistant">
+            <div class="msg-avatar">r</div>
+            <div class="msg-assistant-content">''', unsafe_allow_html=True)
+        st.markdown(f'<div class="msg-assistant-bubble">', unsafe_allow_html=True)
+        st.markdown(msg["content"])
+        st.markdown('</div>', unsafe_allow_html=True)
+        st.markdown(f'''<div class="meta-row">
+            <span class="meta-chip chip-{qt}">{qt.replace("_"," ")}</span>
+            <span class="confidence-dot {conf_cls}"></span>
+            <span class="conf-text">{conf:.2f}</span>
+        </div></div></div>''', unsafe_allow_html=True)
+        if msg.get("sources"):
+            unique_sources = list({(b, str(p)) for b, p in msg["sources"] if str(p) != "N/A"})
+            unique_sources.sort(key=lambda x: x[0])
+            if unique_sources:
+                with st.expander(f"sources · {len(unique_sources)} referenced"):
+                    for bank, page in unique_sources:
+                        st.caption(f"{bank}  ·  pg {page}")
 
 st.markdown('</div>', unsafe_allow_html=True)
-
-# ── sidebar-aware chat input positioning ──────────────────
-st.markdown("""<script>
-(function() {
-    function updateInputOffset() {
-        var sidebar = window.parent.document.querySelector('[data-testid="stSidebar"]');
-        var input   = window.parent.document.querySelector('[data-testid="stChatInput"]');
-        if (!sidebar || !input) return;
-        var expanded = sidebar.getAttribute('aria-expanded') !== 'false'
-                       && !sidebar.style.marginLeft.includes('-');
-        input.style.left = expanded ? '230px' : '0px';
-    }
-    // run immediately and observe DOM changes
-    updateInputOffset();
-    var obs = new MutationObserver(updateInputOffset);
-    obs.observe(window.parent.document.body, { attributes: true, subtree: true, attributeFilter: ['style','aria-expanded'] });
-})();
-</script>""", unsafe_allow_html=True)
 
 # ── input ─────────────────────────────────────────────────
 user_input = st.chat_input("ask a question")
 if user_input:
     prompt = user_input
 
+# inject prefill value via JS into the chat input
+if prefill_val:
+    st.markdown(f"""<script>
+    (function() {{
+        const inputs = window.parent.document.querySelectorAll('[data-testid="stChatInputTextArea"]');
+        if (inputs.length > 0) {{
+            const nativeInputValueSetter = Object.getOwnPropertyDescriptor(window.HTMLTextAreaElement.prototype, 'value').set;
+            nativeInputValueSetter.call(inputs[0], {repr(prefill_val)});
+            inputs[0].dispatchEvent(new Event('input', {{ bubbles: true }}));
+            inputs[0].focus();
+        }}
+    }})();
+    </script>""", unsafe_allow_html=True)
 
 if prompt:
     st.session_state.messages.append({"role": "user", "content": prompt})
