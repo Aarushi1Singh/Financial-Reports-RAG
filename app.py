@@ -356,13 +356,23 @@ def classify_query(question):
     time_keywords = ["current", "today", "now", "latest", "right now", "as of today"]
     if any(kw in question.lower() for kw in time_keywords):
         return "out_of_scope"
+    
+    # ranking questions always mean comparative across the 5 banks
+    ranking_keywords = ["highest", "lowest", "best", "worst", "most", "least", "which bank"]
+    if any(kw in question.lower() for kw in ranking_keywords):
+        return "comparative"
+    
     r = client_anthropic.messages.create(
         model="claude-sonnet-4-5", max_tokens=10, temperature=0,
         messages=[{"role": "user", "content": f"""Classify into one of: factual / comparative / summary / out_of_scope
-factual - specific metric from one bank's annual report
-comparative - same metric across multiple banks
-summary - broad qualitative question about a bank's strategy
-out_of_scope - needs live data, current rates, or unrelated to Indian banking FY25
+
+factual - specific metric from one named bank's FY25 annual report
+comparative - comparing metrics across the 5 Indian banks (HDFC, ICICI, SBI, Axis, Kotak)
+summary - broad qualitative question about a bank's strategy or approach
+out_of_scope - requires live/current data after March 2025, OR completely unrelated to these 5 Indian banks
+              (NOT out_of_scope: any question about ROE, NPA, CAR, NIM, profit, deposits, loans, ESG, risk
+               for HDFC, ICICI, SBI, Axis Bank, or Kotak — even if no bank is named, assume it refers to these 5)
+
 One word only. Question: {question}"""}]
     )
     return r.content[0].text.strip().lower()
@@ -491,8 +501,8 @@ def query_with_grading(question):
         result = web_search_fallback(question)
         log_query(question, result["query_type"], result["confidence"], result["answer"], True, result["sources"])
         return result
-    top_k = 10 if qt == "comparative" else 5
-    chunks = retrieve_by_type(question, qt, top_k=top_k)
+    top_k = 15 if qt == "comparative" else 5
+    chunks = retrieve_by_type(question, qt, top_k=top_k +10)
     chunks = sorted(chunks, key=lambda x: x["metadata"]["bank_name"])
     ctx = " ".join([c["text"] for c in chunks])
     score, _ = grade_context(question, ctx)
