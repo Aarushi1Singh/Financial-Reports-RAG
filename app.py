@@ -1,6 +1,6 @@
 import streamlit as st
 import anthropic
-import chromadb
+from pinecone import Pinecone
 from openai import OpenAI
 from tavily import TavilyClient
 import os
@@ -19,11 +19,8 @@ supabase_client = create_client(
     os.getenv("SUPABASE_KEY")
 )
 
-client_chroma = chromadb.PersistentClient(path="./chroma_db")
-collection = client_chroma.get_or_create_collection(
-    name="financial_rag",
-    metadata={"hnsw:space": "cosine"}
-)
+pc = Pinecone(api_key=os.getenv("PINECONE_API_KEY"))
+index = pc.Index(os.getenv("PINECONE_INDEX", "financial-rag"))
 
 st.set_page_config(
     page_title="Financial RAG Analyst",
@@ -383,30 +380,30 @@ def hyde_retrieve(question, n_results=5):
         messages=[{"role": "user", "content": f"Write a one-paragraph Indian bank annual report excerpt answering: {question}\nUse specific numbers and banking terminology. Paragraph only."}]
     )
     emb = embed_text(r.content[0].text)
-    res = collection.query(query_embeddings=[emb], n_results=n_results, where={"level": "leaf"}, include=["documents", "metadatas", "distances"])
-    return [{"text": res["documents"][0][i], "metadata": res["metadatas"][0][i]} for i in range(len(res["documents"][0]))]
+    res = index.query(vector=emb, top_k=n_results, filter={"level": {"$eq": "leaf"}}, include_metadata=True)
+    return [{"text": m.metadata["text"], "metadata": m.metadata} for m in res.matches]
 
 def multi_query_retrieve(question, n_results=10):
     r = client_anthropic.messages.create(
-        model="claude-sonnet-4-5", max_tokens=200, temperature = 0,
+        model="claude-sonnet-4-5", max_tokens=200, temperature=0,
         messages=[{"role": "user", "content": f"Generate 3 different phrasings of this for document retrieval:\n{question}\nNumbered list only."}]
     )
     paraphrases = [l.strip().lstrip("123.").strip() for l in r.content[0].text.strip().split("\n") if l.strip()]
     seen = {}
     for p in paraphrases:
-        res = collection.query(query_embeddings=[embed_text(p)], n_results=n_results,
-                               where={"level": {"$in": ["leaf", "summary_l1", "summary_l2"]}},
-                               include=["documents", "metadatas", "distances"])
-        for i in range(len(res["documents"][0])):
-            k = res["documents"][0][i][:100]
+        res = index.query(vector=embed_text(p), top_k=n_results,
+                          filter={"level": {"$in": ["leaf", "summary_l1", "summary_l2"]}},
+                          include_metadata=True)
+        for m in res.matches:
+            k = m.metadata["text"][:100]
             if k not in seen:
-                seen[k] = {"text": res["documents"][0][i], "metadata": res["metadatas"][0][i], "distance": res["distances"][0][i]}
+                seen[k] = {"text": m.metadata["text"], "metadata": m.metadata, "distance": 1 - m.score}
     return list(seen.values())
 
 def summary_retrieve(question):
-    res = collection.query(query_embeddings=[embed_text(question)], n_results=5,
-                           where={"level": "summary_l2"}, include=["documents", "metadatas", "distances"])
-    return [{"text": res["documents"][0][i], "metadata": res["metadatas"][0][i]} for i in range(len(res["documents"][0]))]
+    res = index.query(vector=embed_text(question), top_k=5,
+                      filter={"level": {"$eq": "summary_l2"}}, include_metadata=True)
+    return [{"text": m.metadata["text"], "metadata": m.metadata} for m in res.matches]
 
 def retrieve_by_type(question, query_type, top_k=5):
     if query_type == "factual": return hyde_retrieve(question, n_results=top_k)
