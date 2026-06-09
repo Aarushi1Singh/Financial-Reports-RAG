@@ -2,6 +2,8 @@
 
 An Advanced RAG system for querying FY25 annual reports of 5 major Indian banks — HDFC, ICICI, SBI, Axis, and Kotak — using natural language.
 
+Try it here - https://financial-reports-rag.streamlit.app/
+
 ## Features
 - **RAPTOR indexing** — hierarchical summaries for cross-bank queries
 - **HyDE retrieval** — hypothetical document embedding for factual queries
