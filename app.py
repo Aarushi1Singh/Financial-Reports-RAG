@@ -353,22 +353,28 @@ def classify_query(question):
     time_keywords = ["current", "today", "now", "latest", "right now", "as of today"]
     if any(kw in question.lower() for kw in time_keywords):
         return "out_of_scope"
-    
-    # ranking questions always mean comparative across the 5 banks
-    ranking_keywords = ["highest", "lowest", "best", "worst", "most", "least", "which bank"]
+
+    # ranking/comparison questions always route to comparative — bypass LLM
+    ranking_keywords = ["highest", "lowest", "best", "worst", "most", "least", "which bank",
+                        "better", "worse", "outperform", "compare", "comparison", "perform"]
     if any(kw in question.lower() for kw in ranking_keywords):
         return "comparative"
-    
+
     r = client_anthropic.messages.create(
         model="claude-sonnet-4-5", max_tokens=10, temperature=0,
         messages=[{"role": "user", "content": f"""Classify into one of: factual / comparative / summary / out_of_scope
 
-factual - specific metric from one named bank's FY25 annual report
-comparative - comparing metrics across the 5 Indian banks (HDFC, ICICI, SBI, Axis, Kotak)
-summary - broad qualitative question about a bank's strategy or approach
-out_of_scope - requires live/current data after March 2025, OR completely unrelated to these 5 Indian banks
-              (NOT out_of_scope: any question about ROE, NPA, CAR, NIM, profit, deposits, loans, ESG, risk
-               for HDFC, ICICI, SBI, Axis Bank, or Kotak — even if no bank is named, assume it refers to these 5)
+The 5 banks in scope are: HDFC Bank, ICICI Bank, SBI, Axis Bank, Kotak Mahindra Bank.
+Their FY25 annual reports are fully indexed. Any question answerable from these reports is IN scope.
+
+factual     - specific metric or fact from one named bank's FY25 annual report
+comparative - comparing any metric across multiple banks, OR "which bank" questions on any metric
+summary     - broad qualitative question about a bank's strategy, approach, or risk management
+out_of_scope - ONLY if it requires live/real-time data (stock price, today's rate) OR is completely
+               unrelated to Indian banking (e.g. "what is the capital of France")
+
+CRITICAL: "which bank performed better on X", "which bank had the highest/lowest X",
+          "best bank for X", "which bank outperformed on loans" are ALL comparative — never out_of_scope.
 
 One word only. Question: {question}"""}]
     )
@@ -401,9 +407,22 @@ def multi_query_retrieve(question, n_results=10):
     return list(seen.values())
 
 def summary_retrieve(question):
-    res = index.query(vector=embed_text(question), top_k=5,
-                      filter={"level": {"$eq": "summary_l2"}}, include_metadata=True)
-    return [{"text": m.metadata["text"], "metadata": m.metadata} for m in res.matches]
+    # query L2 first (bank-level summaries)
+    res_l2 = index.query(vector=embed_text(question), top_k=3,
+                         filter={"level": {"$eq": "summary_l2"}}, include_metadata=True)
+    chunks = [{"text": m.metadata["text"], "metadata": m.metadata} for m in res_l2.matches]
+    seen = {m.metadata["text"][:100] for m in res_l2.matches}
+
+    # supplement with top L1 nodes — L2 may not cover specific topics
+    # (e.g. risk management may land in its own L1 cluster but not dominate L2)
+    res_l1 = index.query(vector=embed_text(question), top_k=4,
+                         filter={"level": {"$eq": "summary_l1"}}, include_metadata=True)
+    for m in res_l1.matches:
+        if m.metadata["text"][:100] not in seen:
+            chunks.append({"text": m.metadata["text"], "metadata": m.metadata})
+            seen.add(m.metadata["text"][:100])
+
+    return chunks
 
 def retrieve_by_type(question, query_type, top_k=5):
     if query_type == "factual": return hyde_retrieve(question, n_results=top_k)
@@ -470,8 +489,35 @@ Question: {question}"""}]
     )
     return r.content[0].text
 
+# ── bank keyword guard — blocks open web for any bank/finance question ──
+BANK_KEYWORDS = [
+    "hdfc", "icici", "sbi", "axis", "kotak", "bank", "npa", "gnpa", "nnpa", "car", "crar",
+    "roe", "nim", "roa", "capital adequacy", "loan", "credit", "deposit", "interest",
+    "margin", "ratio", "perform", "return on", "net interest", "gross", "asset quality",
+    "liquidity", "revenue", "profit", "earnings", "balance sheet", "tier", "advance",
+    "borrowing", "provision", "slippage", "pcr", "coverage", "risk management",
+    "risk approach", "strategy", "governance", "esg", "sustainability"
+]
+
+def is_bank_question(question):
+    q = question.lower()
+    return any(kw in q for kw in BANK_KEYWORDS)
+
 def web_search_fallback(question):
-    res = tavily_client.search(query=question + " 2026", search_depth="advanced", max_results=3)
+    # bank-related questions must never hit open web — return clean not-found instead
+    if is_bank_question(question):
+        return {
+            "answer": (
+                "The relevant data was not found in the FY25 annual reports of the 5 indexed banks "
+                "(HDFC Bank, ICICI Bank, SBI, Axis Bank, Kotak Mahindra Bank). "
+                "Try rephrasing your question, or ask about a specific metric from one of these banks."
+            ),
+            "confidence": 0.0,
+            "query_type": "out_of_scope",
+            "sources": []
+        }
+    # only genuinely external queries reach here (e.g. current RBI repo rate, macro news)
+    res = tavily_client.search(query=question + " India 2025", search_depth="advanced", max_results=3)
     ctx = ""
     sources = []
     for r in res["results"]:
@@ -491,7 +537,7 @@ def log_query(question, query_type, confidence, answer, web_search_used, sources
             "question": question,
             "query_type": query_type,
             "confidence": float(confidence),
-            "answer": answer[:2000],  # truncate very long answers
+            "answer": answer[:2000],
             "web_search_used": query_type == "web_search",
             "sources": sources_str
         }).execute()
@@ -504,10 +550,10 @@ def query_with_grading(question):
         result = web_search_fallback(question)
         log_query(question, result["query_type"], result["confidence"], result["answer"], True, result["sources"])
         return result
-    top_k = 15 if qt == "comparative" else 5
-    chunks = retrieve_by_type(question, qt, top_k=top_k +10)
-    # for comparative/ranking queries keep retrieval-score order so highest-relevance chunks lead
-    # for factual/summary sort by bank name for consistent citation ordering
+    top_k = 15 if qt == "comparative" else 8
+    chunks = retrieve_by_type(question, qt, top_k=top_k + 10)
+    # comparative: keep retrieval-score order so highest-relevance chunks lead
+    # factual/summary: sort by bank name for consistent citation ordering
     if qt != "comparative":
         chunks = sorted(chunks, key=lambda x: x["metadata"]["bank_name"])
     ctx = " ".join([c["text"] for c in chunks])
@@ -517,18 +563,31 @@ def query_with_grading(question):
         ctx = " ".join([c["text"] for c in chunks])
         score, _ = grade_context(question, ctx)
     if score < 0.3:
-        result = web_search_fallback(question)
+        # bank questions: return not-found cleanly — never leak to open web
+        if is_bank_question(question):
+            result = {
+                "answer": (
+                    "The relevant data was not found in the FY25 annual reports of the 5 indexed banks "
+                    "(HDFC Bank, ICICI Bank, SBI, Axis Bank, Kotak Mahindra Bank). "
+                    "Try rephrasing your question, or ask about a specific metric from one of these banks."
+                ),
+                "confidence": 0.0,
+                "query_type": "out_of_scope",
+                "sources": []
+            }
+        else:
+            result = web_search_fallback(question)
         log_query(question, result["query_type"], result["confidence"], result["answer"], True, result["sources"])
         return result
     answer = generate_answer(question, chunks)
 
-    # ── catch "not found" answers and fall back to web search ──
+    # ── catch "not found" answers — only fall back to web if NOT a bank question ──
     not_found_phrases = [
         "not found in", "not mentioned", "not available in",
         "does not include", "not provided in", "cannot find",
         "no information", "not present in"
     ]
-    if any(phrase in answer.lower() for phrase in not_found_phrases):
+    if any(phrase in answer.lower() for phrase in not_found_phrases) and not is_bank_question(question):
         result = web_search_fallback(question)
         log_query(question, result["query_type"], result["confidence"], result["answer"], True, result["sources"])
         return result
@@ -613,7 +672,6 @@ for msg in st.session_state.messages:
         qt = msg.get("query_type", "factual")
         conf = msg.get("confidence", 0)
         conf_cls = "conf-high" if conf >= 0.8 else "conf-mid" if conf >= 0.6 else "conf-low"
-        # Use st.chat_message to avoid broken split-HTML fragments
         with st.container():
             col_avatar, col_body = st.columns([0.04, 0.96])
             with col_avatar:
@@ -648,7 +706,6 @@ st.markdown("""<script>
                        && !sidebar.style.marginLeft.includes('-');
         input.style.left = expanded ? '230px' : '0px';
     }
-    // run immediately and observe DOM changes
     updateInputOffset();
     var obs = new MutationObserver(updateInputOffset);
     obs.observe(window.parent.document.body, { attributes: true, subtree: true, attributeFilter: ['style','aria-expanded'] });
@@ -659,7 +716,6 @@ st.markdown("""<script>
 user_input = st.chat_input("ask a question")
 if user_input:
     prompt = user_input
-
 
 if prompt:
     st.session_state.messages.append({"role": "user", "content": prompt})
