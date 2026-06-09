@@ -401,22 +401,9 @@ def multi_query_retrieve(question, n_results=10):
     return list(seen.values())
 
 def summary_retrieve(question):
-    # query L2 first (bank-level summaries)
-    res_l2 = index.query(vector=embed_text(question), top_k=3,
-                         filter={"level": {"$eq": "summary_l2"}}, include_metadata=True)
-    chunks = [{"text": m.metadata["text"], "metadata": m.metadata} for m in res_l2.matches]
-    seen = {m.metadata["text"][:100] for m in res_l2.matches}
-
-    # supplement with top L1 nodes — L2 may not cover the specific topic
-    # (e.g. risk management may land in its own L1 cluster but not dominate L2)
-    res_l1 = index.query(vector=embed_text(question), top_k=4,
-                         filter={"level": {"$eq": "summary_l1"}}, include_metadata=True)
-    for m in res_l1.matches:
-        if m.metadata["text"][:100] not in seen:
-            chunks.append({"text": m.metadata["text"], "metadata": m.metadata})
-            seen.add(m.metadata["text"][:100])
-
-    return chunks
+    res = index.query(vector=embed_text(question), top_k=5,
+                      filter={"level": {"$eq": "summary_l2"}}, include_metadata=True)
+    return [{"text": m.metadata["text"], "metadata": m.metadata} for m in res.matches]
 
 def retrieve_by_type(question, query_type, top_k=5):
     if query_type == "factual": return hyde_retrieve(question, n_results=top_k)
@@ -460,8 +447,14 @@ def generate_answer(question, chunks):
         context_parts.append(f"{citation}\n{chunk['text']}")
     ctx = "\n\n".join(context_parts)
     r = client_anthropic.messages.create(
-        model="claude-sonnet-4-5", max_tokens=1000, temperature = 0,
+        model="claude-sonnet-4-5", max_tokens=1000, temperature=0,
         messages=[{"role": "user", "content": f"""You are a financial analyst assistant. Answer only from the provided context.
+
+Ranking/comparison rule — CRITICAL:
+- If the question asks "which bank had the highest/lowest/best X", scan ALL figures for that metric across ALL banks in the context BEFORE writing your answer.
+- Determine the correct ranking first, then state it once at the top as your final answer.
+- Do NOT state a preliminary answer and then correct it. One conclusion only.
+
 Citation rules — follow exactly:
 - Use the citation tag shown before each context block as-is
 - For [Bank, Page X] sources: cite as [Bank, Page X]
@@ -511,9 +504,12 @@ def query_with_grading(question):
         result = web_search_fallback(question)
         log_query(question, result["query_type"], result["confidence"], result["answer"], True, result["sources"])
         return result
-    top_k = 15 if qt == "comparative" else 8  # increased from 5 for better factual recall
+    top_k = 15 if qt == "comparative" else 5
     chunks = retrieve_by_type(question, qt, top_k=top_k +10)
-    chunks = sorted(chunks, key=lambda x: x["metadata"]["bank_name"])
+    # for comparative/ranking queries keep retrieval-score order so highest-relevance chunks lead
+    # for factual/summary sort by bank name for consistent citation ordering
+    if qt != "comparative":
+        chunks = sorted(chunks, key=lambda x: x["metadata"]["bank_name"])
     ctx = " ".join([c["text"] for c in chunks])
     score, _ = grade_context(question, ctx)
     if score < 0.4:
