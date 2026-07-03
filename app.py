@@ -401,7 +401,7 @@ def multi_query_retrieve(question, n_results=10):
                           filter={"level": {"$in": ["leaf", "summary_l1", "summary_l2"]}},
                           include_metadata=True)
         for m in res.matches:
-            k = m.metadata["text"][:100]
+            k = m.id
             if k not in seen:
                 seen[k] = {"text": m.metadata["text"], "metadata": m.metadata, "distance": 1 - m.score}
     return list(seen.values())
